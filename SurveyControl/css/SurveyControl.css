@@ -1,0 +1,18 @@
+.sv-root{font-family:'Segoe UI',sans-serif;padding:16px;max-width:720px;margin:0 auto;color:#242424;box-sizing:border-box}
+.sv-card{background:#fff;border:1px solid #e1dfdd;border-radius:12px;padding:24px}
+.sv-progress-text{font-size:13px;color:#605e5c;margin-bottom:8px}
+.sv-bar{height:6px;background:#edebe9;border-radius:3px;overflow:hidden;margin-bottom:20px}
+.sv-bar-fill{height:100%;background:#0f6cbd;border-radius:3px;transition:width .2s}
+.sv-question{font-size:18px;font-weight:600;line-height:1.4;margin-bottom:12px}
+.sv-block{margin-bottom:28px}
+.sv-answers{display:flex;flex-direction:column;gap:10px}
+.sv-answer{text-align:left;font-size:16px;padding:14px 16px;border:1px solid #c8c6c4;border-radius:8px;background:#fff;cursor:pointer}
+.sv-answer:hover{border-color:#0f6cbd;background:#f3f9fd}
+.sv-selected{border:2px solid #0f6cbd;background:#e8f3fc;font-weight:600}
+.sv-nav{display:flex;justify-content:flex-end;margin-top:8px}
+.sv-btn{font-size:15px;padding:10px 22px;border-radius:6px;border:1px solid #0f6cbd;cursor:pointer}
+.sv-btn-primary{background:#0f6cbd;color:#fff}
+.sv-btn-secondary{background:#fff;color:#0f6cbd}
+.sv-btn:disabled{opacity:.45;cursor:not-allowed}
+.sv-info{font-size:15px;line-height:1.5;margin-bottom:16px}
+.sv-error{color:#a4262c;font-size:14px;margin-top:12px}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest>
+  <control namespace="BTCL" constructor="SurveyControl" version="1.0.0" display-name-key="Survey Control" description-key="Shows all survey questions with their answers on one page and saves the answers." control-type="standard">
+    <property name="surveyUi" display-name-key="Survey UI" description-key="Helper column that hosts the control" of-type="SingleLine.Text" usage="bound" required="true" />
+    <resources>
+      <code path="index.ts" order="1" />
+      <css path="css/SurveyControl.css" order="1" />
+    </resources>
+    <feature-usage>
+      <uses-feature name="WebAPI" required="true" />
+    </feature-usage>
+  </control>
+</manifest>
