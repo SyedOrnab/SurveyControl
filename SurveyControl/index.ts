@@ -1,19 +1,19 @@
 /* eslint-disable */
 import { IInputs, IOutputs } from './generated/ManifestTypes';
 
-// ===================== CHANGE ME (values from step 6, part C) =====================
-const STATUS = { Draft: 790830002, InProgress: 790830000, Completed: 790830001 };
+// ===================== CHANGE ME (values from your environment) =====================
+const STATUS = { Draft: 163120002, InProgress: 163120000, Completed: 163120001 };
+const QTYPE = { Single: 163120000, Multi: 163120001, Open: 163120002 };
 const SET_RES = 'btcl_surveyreses';
 const SET_QUES = 'btcl_surveyqueses';
 const SET_ANS = 'btcl_surveyanses';
 const NAV_DET_RESPONSE = 'btcl_Response';
 const NAV_DET_QUESTION = 'btcl_Question';
 const NAV_DET_ANSWER = 'btcl_SelectedAnswer';
-// =================================================================================
+// ====================================================================================
 
 interface Answer { id: string; text: string; code: string; }
-interface Question { id: string; text: string; code: string; sequence: number; answers: Answer[]; }
-interface Saved { detailId: string; answerId: string; }
+interface Question { id: string; text: string; code: string; sequence: number; kind: string; answers: Answer[]; }
 
 export class SurveyControl implements ComponentFramework.StandardControl<IInputs, IOutputs> {
   private context!: ComponentFramework.Context<IInputs>;
@@ -22,8 +22,8 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
   private doctorId = '';
   private productId = '';
   private questions: Question[] = [];
-  private selected: { [questionId: string]: string } = {};
-  private saved: { [questionId: string]: Saved } = {};
+  private selected: { [questionId: string]: string[] } = {};
+  private typed: { [questionId: string]: string } = {};
   private busy = false;
 
   public init(context: ComponentFramework.Context<IInputs>, notifyOutputChanged: () => void, state: ComponentFramework.Dictionary, container: HTMLDivElement): void {
@@ -84,15 +84,13 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
   private renderStart(): void {
     this.clear();
     const card = this.div('sv-card');
-    const needs: string[] = [];
-    if (!this.doctorId) { needs.push('doctor'); }
-    if (needs.length > 0) {
-      card.appendChild(this.div('sv-info', 'Please select the ' + needs.join(' and ') + ' and save the response before starting.'));
+    if (!this.doctorId) {
+      card.appendChild(this.div('sv-info', 'Please select the doctor and save the response before starting.'));
     } else {
       card.appendChild(this.div('sv-info', 'Ready to start. Click Start Survey.'));
     }
     const btn = this.button('Start Survey', 'sv-btn sv-btn-primary', () => { void this.startSurvey(); });
-    btn.disabled = needs.length > 0;
+    btn.disabled = !this.doctorId;
     card.appendChild(btn);
     this.root.appendChild(card);
   }
@@ -108,7 +106,7 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     }
   }
 
-  // ---------- THE FILTER: questions, answers, earlier picks ----------
+  // ---------- THE FILTER: questions (with type) and their answers ----------
   private async loadQuestions(): Promise<void> {
     // product on the response = product-wise survey; no product = general survey
     let filter = 'btcl_isactive eq true';
@@ -117,37 +115,44 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     } else {
       filter += ' and _btcl_product_value eq null';
     }
-    const q = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyques', '?$select=btcl_surveyquesid,btcl_questiontext,btcl_questioncode,btcl_sequence&$filter=' + filter + '&$orderby=btcl_sequence asc');
+    const q = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyques', '?$select=btcl_surveyquesid,btcl_questiontext,btcl_questioncode,btcl_sequence,btcl_questiontype&$filter=' + filter + '&$orderby=btcl_sequence asc');
     const list: Question[] = [];
     q.entities.forEach((e) => {
-      list.push({ id: e['btcl_surveyquesid'], text: e['btcl_questiontext'], code: e['btcl_questioncode'], sequence: e['btcl_sequence'] || 0, answers: [] });
+      let kind = 'single';
+      if (e['btcl_questiontype'] === QTYPE.Multi) { kind = 'multi'; }
+      if (e['btcl_questiontype'] === QTYPE.Open) { kind = 'open'; }
+      list.push({ id: e['btcl_surveyquesid'], text: e['btcl_questiontext'], code: e['btcl_questioncode'], sequence: e['btcl_sequence'] || 0, kind: kind, answers: [] });
     });
     this.questions = [];
     this.selected = {};
-    this.saved = {};
+    this.typed = {};
     if (list.length === 0) { return; }
 
-    const idFilter = list.map((x) => '_btcl_question_value eq ' + x.id).join(' or ');
-    const a = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyans', '?$select=btcl_surveyansid,btcl_answertext,btcl_answercode,btcl_sortorder,_btcl_question_value&$filter=btcl_isactive eq true and (' + idFilter + ')&$orderby=btcl_sortorder asc');
-    a.entities.forEach((e) => {
-      for (let i = 0; i < list.length; i++) {
-        if (list[i].id === e['_btcl_question_value']) {
-          list[i].answers.push({ id: e['btcl_surveyansid'], text: e['btcl_answertext'], code: e['btcl_answercode'] });
+    // answers are only needed for Single and Multi questions
+    const withAnswers = list.filter((x) => x.kind !== 'open');
+    if (withAnswers.length > 0) {
+      const idFilter = withAnswers.map((x) => '_btcl_question_value eq ' + x.id).join(' or ');
+      const a = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyans', '?$select=btcl_surveyansid,btcl_answertext,btcl_answercode,btcl_sortorder,_btcl_question_value&$filter=btcl_isactive eq true and (' + idFilter + ')&$orderby=btcl_sortorder asc');
+      a.entities.forEach((e) => {
+        for (let i = 0; i < list.length; i++) {
+          if (list[i].id === e['_btcl_question_value']) {
+            list[i].answers.push({ id: e['btcl_surveyansid'], text: e['btcl_answertext'], code: e['btcl_answercode'] });
+          }
         }
-      }
-    });
-    this.questions = list.filter((x) => x.answers.length > 0);
-
-    // answers already stored for this response (if any) are pre-selected
-    const d = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyresdetail', '?$select=btcl_surveyresdetailid,_btcl_question_value,_btcl_selectedanswer_value&$filter=_btcl_response_value eq ' + this.recordId);
-    d.entities.forEach((e) => {
-      const qid = e['_btcl_question_value'];
-      this.saved[qid] = { detailId: e['btcl_surveyresdetailid'], answerId: e['_btcl_selectedanswer_value'] };
-      this.selected[qid] = e['_btcl_selectedanswer_value'];
-    });
+      });
+    }
+    this.questions = list.filter((x) => x.kind === 'open' || x.answers.length > 0);
   }
 
-  // ---------- draw ALL questions and their answers on one page ----------
+  // ---------- is this question answered? ----------
+  private isAnswered(q: Question): boolean {
+    if (q.kind === 'open') {
+      return (this.typed[q.id] || '').trim().length > 0;
+    }
+    return (this.selected[q.id] || []).length > 0;
+  }
+
+  // ---------- draw ALL questions on one page, each by its type ----------
   private render(): void {
     this.clear();
     if (this.questions.length === 0) {
@@ -167,7 +172,7 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     const refresh = () => {
       let n = 0;
       for (let i = 0; i < this.questions.length; i++) {
-        if (this.selected[this.questions[i].id]) { n++; }
+        if (this.isAnswered(this.questions[i])) { n++; }
       }
       counter.textContent = n + ' of ' + this.questions.length + ' answered';
       fill.style.width = Math.round((n / this.questions.length) * 100) + '%';
@@ -177,21 +182,48 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     this.questions.forEach((q, qi) => {
       const block = this.div('sv-block');
       block.appendChild(this.div('sv-question', (qi + 1) + '. ' + q.text));
-      const list = this.div('sv-answers');
-      const buttons: HTMLButtonElement[] = [];
-      q.answers.forEach((a) => {
-        const b = this.button(a.text, 'sv-answer', () => {
-          this.selected[q.id] = a.id;
+
+      if (q.kind === 'open') {
+        block.appendChild(this.div('sv-hint', 'Type your answer'));
+        const ta = document.createElement('textarea');
+        ta.className = 'sv-text';
+        ta.rows = 3;
+        ta.value = this.typed[q.id] || '';
+        ta.oninput = () => { this.typed[q.id] = ta.value; refresh(); };
+        block.appendChild(ta);
+      } else {
+        block.appendChild(this.div('sv-hint', q.kind === 'multi' ? 'Select all that apply' : 'Select one'));
+        const list = this.div('sv-answers');
+        const buttons: HTMLButtonElement[] = [];
+        const paint = () => {
+          const sel = this.selected[q.id] || [];
           for (let k = 0; k < buttons.length; k++) {
-            buttons[k].className = 'sv-answer' + (q.answers[k].id === a.id ? ' sv-selected' : '');
+            const on = sel.indexOf(q.answers[k].id) >= 0;
+            buttons[k].className = 'sv-answer' + (on ? ' sv-selected' : '');
+            if (q.kind === 'multi') {
+              buttons[k].textContent = (on ? '\u2611 ' : '\u2610 ') + q.answers[k].text;
+            }
           }
-          refresh();
+        };
+        q.answers.forEach((a) => {
+          const b = this.button(a.text, 'sv-answer', () => {
+            if (q.kind === 'multi') {
+              const cur = (this.selected[q.id] || []).slice();
+              const pos = cur.indexOf(a.id);
+              if (pos >= 0) { cur.splice(pos, 1); } else { cur.push(a.id); }
+              this.selected[q.id] = cur;
+            } else {
+              this.selected[q.id] = [a.id];
+            }
+            paint();
+            refresh();
+          });
+          buttons.push(b);
+          list.appendChild(b);
         });
-        if (this.selected[q.id] === a.id) { b.className = 'sv-answer sv-selected'; }
-        buttons.push(b);
-        list.appendChild(b);
-      });
-      block.appendChild(list);
+        paint();
+        block.appendChild(list);
+      }
       card.appendChild(block);
     });
 
@@ -208,27 +240,25 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     this.busy = true;
     try {
       for (let i = 0; i < this.questions.length; i++) {
+        if (!this.isAnswered(this.questions[i])) { throw new Error('Please answer all questions before submitting.'); }
+      }
+      // remove rows left by an earlier failed attempt, so nothing is duplicated
+      const old = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyresdetail', '?$select=btcl_surveyresdetailid&$filter=_btcl_response_value eq ' + this.recordId);
+      for (let i = 0; i < old.entities.length; i++) {
+        await this.context.webAPI.deleteRecord('btcl_surveyresdetail', old.entities[i]['btcl_surveyresdetailid']);
+      }
+      // one row per Single / Open text question, one row per ticked answer for Multi
+      for (let i = 0; i < this.questions.length; i++) {
         const q = this.questions[i];
-        const a = this.findAnswer(q, this.selected[q.id]);
-        if (!a) { throw new Error('Please answer all questions before submitting.'); }
-        const data: any = {
-          btcl_name: q.code + ' - ' + a.code,
-          btcl_questioncode: q.code,
-          btcl_questiontext: q.text,
-          btcl_answercode: a.code,
-          btcl_answertext: a.text,
-          btcl_sortorder: q.sequence,
-          btcl_isrequired: true
-        };
-        data[NAV_DET_ANSWER + '@odata.bind'] = '/' + SET_ANS + '(' + a.id + ')';
-        const existing = this.saved[q.id];
-        if (existing) {
-          await this.context.webAPI.updateRecord('btcl_surveyresdetail', existing.detailId, data);
+        if (q.kind === 'open') {
+          await this.saveRow(q, null, (this.typed[q.id] || '').trim());
         } else {
-          data[NAV_DET_RESPONSE + '@odata.bind'] = '/' + SET_RES + '(' + this.recordId + ')';
-          data[NAV_DET_QUESTION + '@odata.bind'] = '/' + SET_QUES + '(' + q.id + ')';
-          const created = await this.context.webAPI.createRecord('btcl_surveyresdetail', data);
-          this.saved[q.id] = { detailId: created.id, answerId: a.id };
+          const sel = this.selected[q.id] || [];
+          for (let k = 0; k < q.answers.length; k++) {
+            if (sel.indexOf(q.answers[k].id) >= 0) {
+              await this.saveRow(q, q.answers[k], q.answers[k].text);
+            }
+          }
         }
       }
       // End Time is set automatically here
@@ -248,11 +278,20 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     }
   }
 
-  private findAnswer(q: Question, answerId: string): Answer | null {
-    for (let i = 0; i < q.answers.length; i++) {
-      if (q.answers[i].id === answerId) { return q.answers[i]; }
-    }
-    return null;
+  private async saveRow(q: Question, a: Answer | null, text: string): Promise<void> {
+    const data: any = {
+      btcl_name: a ? q.code + ' - ' + a.code : q.code,
+      btcl_questioncode: q.code,
+      btcl_questiontext: q.text,
+      btcl_answercode: a ? a.code : '',
+      btcl_answertext: text,
+      btcl_sortorder: q.sequence,
+      btcl_isrequired: true
+    };
+    data[NAV_DET_RESPONSE + '@odata.bind'] = '/' + SET_RES + '(' + this.recordId + ')';
+    data[NAV_DET_QUESTION + '@odata.bind'] = '/' + SET_QUES + '(' + q.id + ')';
+    if (a) { data[NAV_DET_ANSWER + '@odata.bind'] = '/' + SET_ANS + '(' + a.id + ')'; }
+    await this.context.webAPI.createRecord('btcl_surveyresdetail', data);
   }
 
   // ---------- small helpers ----------

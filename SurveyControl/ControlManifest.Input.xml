@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest>
-  <control namespace="BTCL" constructor="SurveyControl" version="1.0.0" display-name-key="Survey Control" description-key="Shows all survey questions with their answers on one page and saves the answers." control-type="standard">
+  <control namespace="BTCL" constructor="SurveyControl" version="1.0.2" display-name-key="Survey Control" description-key="Shows all survey questions on one page (Single, Multi or Open text) and saves the answers." control-type="standard">
     <property name="surveyUi" display-name-key="Survey UI" description-key="Helper column that hosts the control" of-type="SingleLine.Text" usage="bound" required="true" />
     <resources>
       <code path="index.ts" order="1" />
