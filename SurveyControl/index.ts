@@ -176,7 +176,6 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
       }
       counter.textContent = n + ' of ' + this.questions.length + ' answered';
       fill.style.width = Math.round((n / this.questions.length) * 100) + '%';
-      submit.disabled = n < this.questions.length;
     };
 
     this.questions.forEach((q, qi) => {
@@ -239,19 +238,17 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
     if (this.busy) { return; }
     this.busy = true;
     try {
-      for (let i = 0; i < this.questions.length; i++) {
-        if (!this.isAnswered(this.questions[i])) { throw new Error('Please answer all questions before submitting.'); }
-      }
       // remove rows left by an earlier failed attempt, so nothing is duplicated
       const old = await this.context.webAPI.retrieveMultipleRecords('btcl_surveyresdetail', '?$select=btcl_surveyresdetailid&$filter=_btcl_response_value eq ' + this.recordId);
       for (let i = 0; i < old.entities.length; i++) {
         await this.context.webAPI.deleteRecord('btcl_surveyresdetail', old.entities[i]['btcl_surveyresdetailid']);
       }
-      // one row per Single / Open text question, one row per ticked answer for Multi
+      // one row per answered Single / Open text question, one row per ticked answer for Multi; unanswered questions are skipped
       for (let i = 0; i < this.questions.length; i++) {
         const q = this.questions[i];
         if (q.kind === 'open') {
-          await this.saveRow(q, null, (this.typed[q.id] || '').trim());
+          const t = (this.typed[q.id] || '').trim();
+          if (t.length > 0) { await this.saveRow(q, null, t); }
         } else {
           const sel = this.selected[q.id] || [];
           for (let k = 0; k < q.answers.length; k++) {
@@ -286,7 +283,7 @@ export class SurveyControl implements ComponentFramework.StandardControl<IInputs
       btcl_answercode: a ? a.code : '',
       btcl_answertext: text,
       btcl_sortorder: q.sequence,
-      btcl_isrequired: true
+      btcl_isrequired: false
     };
     data[NAV_DET_RESPONSE + '@odata.bind'] = '/' + SET_RES + '(' + this.recordId + ')';
     data[NAV_DET_QUESTION + '@odata.bind'] = '/' + SET_QUES + '(' + q.id + ')';
